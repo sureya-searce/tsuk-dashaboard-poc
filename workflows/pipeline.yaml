@@ -1,0 +1,150 @@
+# Cloud Workflow — orchestrates the full PoC pipeline.
+#
+# Triggered by Eventarc on `google.cloud.storage.object.v1.finalized` from
+# gs://tsuk-searce-dashboard-poc. Eventarc has no native prefix filter, so this
+# workflow filters at step 1: the object MUST be at:
+#
+#     landing/<feed>/<filename>.xlsx
+#
+# where <source> is one of the allowed sources (rail, road_uk, road_eu).
+# Anything else short-circuits with status SKIPPED.
+
+main:
+  params: [event]
+  steps:
+    - init:
+        assign:
+          - project_id: "${project_id}"
+          - region: "${region}"
+          - raw_dataset: "${raw_dataset}"
+          - stg_dataset: "${stg_dataset}"
+          - mart_dataset: "${mart_dataset}"
+          - ingest_url: "${ingest_url}"
+          - warm_url: "${warm_url}"
+          - landing_prefix: "${landing_prefix}"
+          - allowed_feeds: ${allowed_feeds}
+          - bucket: $${event.data.bucket}
+          - object: $${event.data.name}
+
+    # Path must look like: landing/<supplier>/<file>.xlsx
+    - parse_path:
+        try:
+          steps:
+            - extract:
+                assign:
+                  - path_match: $${text.find_all_regex(object, "^" + landing_prefix + "([a-z0-9_]+)/([^/]+)\\.xlsx$")}
+            - guard_match:
+                switch:
+                  - condition: $${len(path_match) == 0}
+                    next: skip_bad_path
+            - assign_parts:
+                assign:
+                  - feed: $${path_match[0].groups[0].match}
+                  - file_name: $${path_match[0].groups[1].match + ".xlsx"}
+        except:
+          as: parse_err
+          next: skip_bad_path
+
+    - guard_feed:
+        switch:
+          - condition: $${not(feed in allowed_feeds)}
+            next: skip_unknown_feed
+        next: ingest
+
+    - skip_bad_path:
+        return:
+          status: SKIPPED
+          reason: $${"Object path does not match landing/<feed>/<file>.xlsx: " + object}
+
+    - skip_unknown_feed:
+        return:
+          status: SKIPPED
+          reason: $${"Feed '" + feed + "' not in allowed list"}
+          object: $${object}
+
+    - ingest:
+        call: http.post
+        args:
+          url: $${ingest_url + "/ingest"}
+          auth:
+            type: OIDC
+            audience: $${ingest_url}
+          body:
+            bucket: $${bucket}
+            object: $${object}
+            feed: $${feed}
+          timeout: 540
+        result: ingest_result
+
+    - normalise:
+        call: googleapis.bigquery.v2.jobs.query
+        args:
+          projectId: $${project_id}
+          body:
+            useLegacySql: false
+            location: EU
+            query: $${"CALL `" + project_id + "." + stg_dataset + ".sp_normalise`()"}
+        result: normalise_result
+
+    - unify:
+        call: googleapis.bigquery.v2.jobs.query
+        args:
+          projectId: $${project_id}
+          body:
+            useLegacySql: false
+            location: EU
+            query: $${"CALL `" + project_id + "." + mart_dataset + ".sp_unify`()"}
+        result: unify_result
+
+    - anomalies:
+        call: googleapis.bigquery.v2.jobs.query
+        args:
+          projectId: $${project_id}
+          body:
+            useLegacySql: false
+            location: EU
+            query: $${"CALL `" + project_id + "." + mart_dataset + ".sp_anomalies`()"}
+        result: anomalies_result
+
+    - data_quality:
+        call: googleapis.bigquery.v2.jobs.query
+        args:
+          projectId: $${project_id}
+          body:
+            useLegacySql: false
+            location: EU
+            query: $${"CALL `" + project_id + "." + mart_dataset + ".sp_data_quality`()"}
+        result: dq_result
+
+    - warm_cache:
+        try:
+          call: http.post
+          args:
+            url: $${warm_url + "/warm"}
+            auth:
+              type: OIDC
+              audience: $${warm_url}
+            body:
+              dashboards: ["finance", "logistics", "anomaly"]
+            timeout: 120
+          result: warm_result
+        except:
+          as: warm_error
+          steps:
+            - capture_warm_error:
+                assign:
+                  - warm_result:
+                      status: WARN
+                      error: $${warm_error}
+
+    - done:
+        return:
+          status: OK
+          feed: $${feed}
+          file: $${file_name}
+          ingest: $${ingest_result.body}
+          normalise_job: $${normalise_result.jobReference}
+          unify_job: $${unify_result.jobReference}
+          anomalies_job: $${anomalies_result.jobReference}
+          data_quality_job: $${dq_result.jobReference}
+          warm: $${warm_result}

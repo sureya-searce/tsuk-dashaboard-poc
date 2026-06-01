@@ -1,0 +1,38 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local
+.DS_Store
+.env
+.env.local
+*.log
+
+# Client data — real TSUK logistics files. Do NOT commit to a remote.
+# Keep these local; share via the GCS landing bucket, not git.
+sample_data/
+*.xlsx
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# Build
+dist/
+build/

@@ -1,0 +1,24 @@
+[project]
+name = "ingest"
+version = "0.1.0"
+description = "Searce TSUK PoC — ingest service. Parses supplier Excel files and loads rows into BigQuery raw_*."
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "google-cloud-storage>=2.18",
+  "google-cloud-bigquery>=3.25",
+  "pandas>=2.2",
+  "openpyxl>=3.1",
+  "pydantic>=2.9",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "ruff>=0.7",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

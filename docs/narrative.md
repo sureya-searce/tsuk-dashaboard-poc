@@ -1,0 +1,165 @@
+# TSUK Logistics Cost Analytics — Demo Narrative
+
+> The narrative is the product. Everything we build serves this story. This doc
+> is the spine; the pipeline, model, and dashboards exist to make each beat land.
+
+---
+
+## 1. The "why now" (the stakes)
+
+Tata Steel UK is at the most cost-sensitive moment in its history:
+
+- A **£1.25bn** electric arc furnace (EAF) transition at Port Talbot (live late
+  2027 / early 2028), part-funded by a £500M UK Government grant.
+- Against a backdrop of **−£373M EBITDA and −£623M free cashflow (FY23-24)**.
+- During EAF construction the blast furnaces are gone, so TSUK is **importing
+  slab and hot-rolled coil** from Norway, Sweden, France, Germany and the UAE
+  into sites across Wales, England and Northern Ireland.
+
+The supply chain is being **rewired in real time**. Logistics is one of the few
+*controllable* cost levers left — but only if you can see it.
+
+## 2. The problem (the tension)
+
+TSUK's logistics cost lives in **three disconnected spreadsheets**, each a
+different shape, emailed monthly:
+
+| Feed | What it is | Grain | Why it's hard |
+|---|---|---|---|
+| **Rail** | DB Cargo steel movements (Port Talbot → UK terminals) | 1 row / movement | Costs split across haulage, fuel, cancellation |
+| **Road UK** | Domestic distribution to UK customers | 1 row / leg | Multi-leg orders; purchase vs sales cost |
+| **Road EU** | Cross-border import/export (the new EAF-era flows) | 1 row / **charge line** | ~4 charge lines per shipment; customer code ≠ shipment |
+
+Nobody can answer, across all three at once:
+- *What is our total cost per tonne / per load — and where is it leaking?*
+- *How well are we utilising the capacity we pay for?*
+
+The current Power BI view is one feed at a time, manual, and static. You can
+*look* at it; you can't *ask* it anything.
+
+## 3. The demo (the resolution)
+
+A single, event-driven pipeline on Google Cloud:
+
+1. **A file lands** in the GCS landing zone (`landing/rail/…`, `landing/road_uk/…`, `landing/road_eu/…`).
+2. **The pipeline runs itself** — no scheduler, no human. Ingest → unify → KPIs → anomalies → dashboard cache warm.
+3. **Two personas get one click each:**
+   - **Finance** → *Cost per load / per tonne*, sliced by lane, commodity, modality, customer.
+   - **Supply Chain** → *Utilisation capacity per load* — where are we paying to move air?
+4. **Anyone asks in plain English** — Looker Conversational Analytics answers
+   from the same unified model.
+
+## 4. The two hero questions (mapped to personas)
+
+These are the success criteria. The demo lives or dies on answering these two
+crisply, against real TSUK data. **Every figure below is computed from the
+sample data and reconciles to the source files (see §8) — none is illustrative.**
+
+Sample data spans £81.4M of logistics spend across 142,090 movements
+(rail = full FY26; road feeds = FY26 Q1).
+
+### Finance — "What is our cost per load?"
+- Headline: total logistics cost, £/tonne and £/load, by modality and period.
+- Drill: by modality (rail vs UK road vs EU road), by lane, by commodity
+  (coil / slab / ore), by customer, by region.
+- **The punchline (from the data):**
+
+  | Source | Cost / tonne | Avg cost / load |
+  |---|---|---|
+  | Rail (DB Cargo) | **£6.57** | £7,976 |
+  | Road UK | **£20.37** | £388 |
+  | Road EU (imports) | **£55.31** | £1,224 |
+
+  → **European road freight costs 8.4× per tonne what rail does.** In an
+  import-dependent EAF transition, that is the single most actionable cost fact
+  on the table — and it was invisible while the three feeds lived apart.
+
+- **A second, unprompted insight (from the data):** just **two UK carriers —
+  OWENS (£6.5M) and HINGLEY (£6.3M) — account for £12.8M of road spend**, out of
+  **117 carriers** in total. Carrier concentration is a negotiation lever the
+  unified `carrier` dimension surfaces instantly.
+
+### Supply Chain — "What is our utilisation capacity per load?"
+- Utilisation = tonnes carried ÷ capacity paid for, per load.
+  **Capacity is an assumption** (no source feed carries vehicle/wagon capacity),
+  seeded in `stg.dim_capacity` and editable with TSUK's real fleet spec. Every
+  utilisation figure is labelled as assumption-based.
+- Drill: by equipment type, lane, carrier.
+- **From the data (assumed capacity):** mean utilisation 54%, median 63%;
+  **35.8% of loads run below 40% utilisation.** Even directionally, that points
+  to a consolidation lever — and TSUK's own fleet spec sharpens it to a £ figure.
+
+## 5. The anomaly hook (the "wow")
+
+A live **Top-10 cost-leakage** tile, ranked by £ impact:
+- Loads priced well above their lane's cost-per-tonne median.
+- Cost charged against zero tonnage (paying for nothing).
+- Cancellation / credit lines.
+- Loads run below 40% utilisation (structural waste) or above 100% (data error).
+
+This is the moment the room leans in: the system *finds the money* without being
+asked.
+
+## 6. The five Conversational Analytics prompts (rehearsed)
+
+1. "What was our total logistics cost last month, split by rail, UK road and EU road?"
+2. "Which lanes have the highest cost per tonne?"
+3. "Show me average utilisation per load by equipment type."
+4. "Where are we paying for loads under 60% utilised?"
+5. "How does European road cost per tonne compare to rail for coil?"
+
+## 7a. Evidence-based by design (why the numbers can be trusted)
+
+This platform is built so that **nothing is asserted that cannot be traced to a
+source row.** Three guarantees:
+
+1. **Conversational Analytics never computes numbers.** It translates English →
+   a governed query against the LookML semantic layer, which runs as a SQL
+   aggregation in BigQuery over real rows. The LLM phrases the answer; the data
+   produces the number.
+2. **Every metric is one defined measure** (LookML), each traceable to a source
+   column and a documented formula (`docs/kpi-logic.md`). No ad-hoc maths.
+3. **Reconciliation in the platform.** `mart.reconciliation` proves computed
+   totals equal source control totals (they match to the penny on the sample:
+   rail £27.12M, road_uk £36.37M, road_eu £17.93M). `mart.dq_flags` lists every
+   excluded/suspect row with a reason. `mart.assumptions` registers the one
+   non-source input (capacity) and labels it as such.
+
+If a stakeholder asks "where does this number come from?", the answer is always
+a query, a column, and a row — never the model's imagination.
+
+## 7. The close (the so-what)
+
+> "Today this took three spreadsheets, a week, and a person. Now it takes one
+> file drop and answers a question in plain English — across rail, UK road and
+> European road, in one place. In an EAF transition where every controllable
+> cost matters, this is the control panel for the cost you *can* move."
+
+Next step framed as: productionise (IaC, scheduled supplier feeds, more
+suppliers, source-data quality) — or a follow-on engagement.
+
+---
+
+## Alignment to the SOW
+
+| SOW success criterion | Demo beat |
+|---|---|
+| Pipeline runs on file drop, no manual steps | §3.2 |
+| Dashboards reproduce material Power BI views | §4 Finance + Logistics |
+| Conversational Analytics answers ≥5 NL questions | §6 |
+| Anomaly digest Top-10 by impact | §5 |
+| Next-step discussion documented | §7 |
+
+## 8. Source reconciliation (the receipts)
+
+Computed totals vs control totals taken straight from the source columns —
+matching exactly on the sample data:
+
+| Source | Source control total | Computed total | Δ |
+|---|---|---|---|
+| rail (`total_excl_cancellation`) | £27,124,697 | £27,124,697 | £0 |
+| road_uk (`purchase_cost`) | £36,367,196 | £36,367,196 | £0 |
+| road_eu (`revenue_amount_gbp`) | £17,930,073 | £17,930,073 | £0 |
+
+road_eu: 61,859 charge lines → 14,644 shipments (≈4.2 lines each), aggregated by
+`code + collection time + delivery time + delivery town + weight`.
