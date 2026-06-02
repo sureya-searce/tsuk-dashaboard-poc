@@ -10,6 +10,7 @@
 -- ─────────────────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE PROCEDURE `@@PROJECT@@.@@MART@@.sp_unify`()
+OPTIONS (strict_mode = false)  -- reads stg.shipments, created at runtime by sp_normalise
 BEGIN
 
   -- 1. Fact table ─────────────────────────────────────────────────

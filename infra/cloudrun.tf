@@ -1,24 +1,28 @@
-# Cloud Run services. Images are built and pushed out-of-band by `make deploy`
-# (Cloud Build via `gcloud run deploy --source`). Terraform manages the service
-# resource itself; image tags can be updated via `terraform apply` or directly
-# via gcloud — both write to the same Cloud Run service object.
+# Cloud Run services. Images are built and pushed by `make build-*` (Cloud
+# Build) into the Artifact Registry repo before the Cloud Run apply. Terraform
+# manages the service resources; image tag updates via `gcloud run deploy` won't
+# cause drift (ignore_changes on image).
+#
+# Auth: ingress = ALL but unauthenticated access is NOT granted, so callers must
+# present a valid OIDC token. The Workflow calls these services as the runtime
+# SA, which holds project-level roles/run.invoker (granted by the admin).
 
 locals {
-  image_ingest = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.images.repository_id}/ingest:latest"
-  image_warm   = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.images.repository_id}/warm:latest"
+  image_ingest = "${var.region}-docker.pkg.dev/${var.project_id}/${var.ar_repo}/${var.name_prefix}-ingest:latest"
+  image_warm   = "${var.region}-docker.pkg.dev/${var.project_id}/${var.ar_repo}/${var.name_prefix}-warm:latest"
 }
 
 resource "google_cloud_run_v2_service" "ingest" {
   name                = "${var.name_prefix}-ingest"
   location            = var.region
   project             = var.project_id
-  ingress             = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  ingress             = "INGRESS_TRAFFIC_ALL"
   deletion_protection = false
   labels              = var.labels
 
   template {
-    service_account = google_service_account.runtime.email
-    timeout         = "540s"
+    service_account                  = local.runtime_sa_email
+    timeout                          = "540s"
     max_instance_request_concurrency = 1
 
     scaling {
@@ -30,9 +34,10 @@ resource "google_cloud_run_v2_service" "ingest" {
       image = local.image_ingest
 
       resources {
+        # road_uk is ~124k rows / 20MB; openpyxl + in-memory JSON needs headroom.
         limits = {
-          cpu    = "1"
-          memory = "1Gi"
+          cpu    = "2"
+          memory = "4Gi"
         }
       }
 
@@ -51,7 +56,6 @@ resource "google_cloud_run_v2_service" "ingest" {
     }
   }
 
-  # Allow image updates from `gcloud run deploy` without TF drift screaming.
   lifecycle {
     ignore_changes = [
       template[0].containers[0].image,
@@ -59,24 +63,23 @@ resource "google_cloud_run_v2_service" "ingest" {
       client_version,
     ]
   }
-
-  depends_on = [
-    google_project_service.apis,
-    google_project_iam_member.runtime_roles,
-  ]
 }
+
+/* ── warm service DEFERRED until Looker access lands ───────────────────────
+   Re-enable this resource (and warm_url in infra/workflows.tf, the warm_cache
+   step in workflows/pipeline.yaml, and the warm outputs) once Looker is reachable.
 
 resource "google_cloud_run_v2_service" "warm" {
   name                = "${var.name_prefix}-warm"
   location            = var.region
   project             = var.project_id
-  ingress             = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  ingress             = "INGRESS_TRAFFIC_ALL"
   deletion_protection = false
   labels              = var.labels
 
   template {
-    service_account = google_service_account.runtime.email
-    timeout         = "120s"
+    service_account                  = local.runtime_sa_email
+    timeout                          = "120s"
     max_instance_request_concurrency = 1
 
     scaling {
@@ -94,13 +97,13 @@ resource "google_cloud_run_v2_service" "warm" {
         }
       }
 
+      # Looker creds are injected once Looker access lands; until then the warm
+      # service no-ops gracefully (returns SKIPPED) and the pipeline still
+      # updates BigQuery end-to-end.
       env {
         name  = "LOOKER_INSTANCE_URL"
         value = "https://lookerservice.gcp.tsuk.com"
       }
-      # Looker API client id/secret should be set out-of-band (Secret Manager
-      # or env override) once Looker user provisioning is done. Left as
-      # placeholders here to keep the deploy plan working.
       env {
         name  = "LOOKER_CLIENT_ID"
         value = ""
@@ -120,26 +123,5 @@ resource "google_cloud_run_v2_service" "warm" {
       client_version,
     ]
   }
-
-  depends_on = [
-    google_project_service.apis,
-    google_project_iam_member.runtime_roles,
-  ]
 }
-
-# Allow the runtime SA (used by Workflows) to invoke both Cloud Run services.
-resource "google_cloud_run_v2_service_iam_member" "ingest_invoker" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_service.ingest.name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.runtime.email}"
-}
-
-resource "google_cloud_run_v2_service_iam_member" "warm_invoker" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_service.warm.name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.runtime.email}"
-}
+─────────────────────────────────────────────────────────────────────────── */

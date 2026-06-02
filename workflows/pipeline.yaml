@@ -1,13 +1,15 @@
 # Cloud Workflow — orchestrates the full PoC pipeline.
 #
-# Triggered by Eventarc on `google.cloud.storage.object.v1.finalized` from
-# gs://tsuk-searce-dashboard-poc. Eventarc has no native prefix filter, so this
-# workflow filters at step 1: the object MUST be at:
+# Triggered by Eventarc on `google.cloud.storage.object.v1.finalized` from the
+# landing bucket. Eventarc has no native prefix filter, so this workflow filters
+# at step 1: the object MUST be at:
 #
 #     landing/<feed>/<filename>.xlsx
 #
-# where <source> is one of the allowed sources (rail, road_uk, road_eu).
+# where <feed> is one of the allowed feeds (rail, road_uk, road_eu).
 # Anything else short-circuits with status SKIPPED.
+#
+# GCP Workflows requires ${...} expression values to be single-quoted.
 
 main:
   params: [event]
@@ -20,131 +22,134 @@ main:
           - stg_dataset: "${stg_dataset}"
           - mart_dataset: "${mart_dataset}"
           - ingest_url: "${ingest_url}"
-          - warm_url: "${warm_url}"
+          # Looker cache warm — deferred until Looker access lands.
+          # - warm_url: (set from warm Cloud Run service when re-enabled)
           - landing_prefix: "${landing_prefix}"
           - allowed_feeds: ${allowed_feeds}
-          - bucket: $${event.data.bucket}
-          - object: $${event.data.name}
+          - bucket: '$${event.data.bucket}'
+          - object: '$${event.data.name}'
 
-    # Path must look like: landing/<supplier>/<file>.xlsx
+    # Path must be exactly: landing/<feed>/<file>.xlsx
+    # Use text.split (robust) rather than regex capture groups, which the
+    # Workflows text functions do not expose.
     - parse_path:
-        try:
-          steps:
-            - extract:
-                assign:
-                  - path_match: $${text.find_all_regex(object, "^" + landing_prefix + "([a-z0-9_]+)/([^/]+)\\.xlsx$")}
-            - guard_match:
-                switch:
-                  - condition: $${len(path_match) == 0}
-                    next: skip_bad_path
-            - assign_parts:
-                assign:
-                  - feed: $${path_match[0].groups[0].match}
-                  - file_name: $${path_match[0].groups[1].match + ".xlsx"}
-        except:
-          as: parse_err
-          next: skip_bad_path
+        assign:
+          - parts: '$${text.split(object, "/")}'
+
+    - guard_structure:
+        switch:
+          - condition: '$${len(parts) != 3 or parts[0] != "landing" or not text.match_regex(parts[2], "[.]xlsx$")}'
+            next: skip_bad_path
+        next: assign_parts
+
+    - assign_parts:
+        assign:
+          - feed: '$${parts[1]}'
+          - file_name: '$${parts[2]}'
 
     - guard_feed:
         switch:
-          - condition: $${not(feed in allowed_feeds)}
+          - condition: '$${not (feed in allowed_feeds)}'
             next: skip_unknown_feed
         next: ingest
 
     - skip_bad_path:
         return:
           status: SKIPPED
-          reason: $${"Object path does not match landing/<feed>/<file>.xlsx: " + object}
+          reason: '$${"Object path does not match landing feed file pattern: " + object}'
 
     - skip_unknown_feed:
         return:
           status: SKIPPED
-          reason: $${"Feed '" + feed + "' not in allowed list"}
-          object: $${object}
+          reason: '$${"Feed not in allowed list: " + feed}'
+          object: '$${object}'
 
     - ingest:
         call: http.post
         args:
-          url: $${ingest_url + "/ingest"}
+          url: '$${ingest_url + "/ingest"}'
           auth:
             type: OIDC
-            audience: $${ingest_url}
+            audience: '$${ingest_url}'
           body:
-            bucket: $${bucket}
-            object: $${object}
-            feed: $${feed}
+            bucket: '$${bucket}'
+            object: '$${object}'
+            feed: '$${feed}'
           timeout: 540
         result: ingest_result
 
     - normalise:
         call: googleapis.bigquery.v2.jobs.query
         args:
-          projectId: $${project_id}
+          projectId: '$${project_id}'
           body:
             useLegacySql: false
             location: EU
-            query: $${"CALL `" + project_id + "." + stg_dataset + ".sp_normalise`()"}
+            query: '$${"CALL `" + project_id + "." + stg_dataset + ".sp_normalise`()"}'
         result: normalise_result
 
     - unify:
         call: googleapis.bigquery.v2.jobs.query
         args:
-          projectId: $${project_id}
+          projectId: '$${project_id}'
           body:
             useLegacySql: false
             location: EU
-            query: $${"CALL `" + project_id + "." + mart_dataset + ".sp_unify`()"}
+            query: '$${"CALL `" + project_id + "." + mart_dataset + ".sp_unify`()"}'
         result: unify_result
 
     - anomalies:
         call: googleapis.bigquery.v2.jobs.query
         args:
-          projectId: $${project_id}
+          projectId: '$${project_id}'
           body:
             useLegacySql: false
             location: EU
-            query: $${"CALL `" + project_id + "." + mart_dataset + ".sp_anomalies`()"}
+            query: '$${"CALL `" + project_id + "." + mart_dataset + ".sp_anomalies`()"}'
         result: anomalies_result
 
     - data_quality:
         call: googleapis.bigquery.v2.jobs.query
         args:
-          projectId: $${project_id}
+          projectId: '$${project_id}'
           body:
             useLegacySql: false
             location: EU
-            query: $${"CALL `" + project_id + "." + mart_dataset + ".sp_data_quality`()"}
+            query: '$${"CALL `" + project_id + "." + mart_dataset + ".sp_data_quality`()"}'
         result: dq_result
 
-    - warm_cache:
-        try:
-          call: http.post
-          args:
-            url: $${warm_url + "/warm"}
-            auth:
-              type: OIDC
-              audience: $${warm_url}
-            body:
-              dashboards: ["finance", "logistics", "anomaly"]
-            timeout: 120
-          result: warm_result
-        except:
-          as: warm_error
-          steps:
-            - capture_warm_error:
-                assign:
-                  - warm_result:
-                      status: WARN
-                      error: $${warm_error}
+    # ── Looker cache warm — DEFERRED until Looker access lands ──────────
+    # Uncomment this step (and warm_url in init, warm_result in done, and the
+    # warm Cloud Run service in infra/cloudrun.tf) once Looker is reachable.
+    # - warm_cache:
+    #     try:
+    #       call: http.post
+    #       args:
+    #         url: '$${warm_url + "/warm"}'
+    #         auth:
+    #           type: OIDC
+    #           audience: '$${warm_url}'
+    #         body:
+    #           dashboards: ["finance", "logistics", "anomaly"]
+    #         timeout: 120
+    #       result: warm_result
+    #     except:
+    #       as: warm_error
+    #       steps:
+    #         - capture_warm_error:
+    #             assign:
+    #               - warm_result:
+    #                   status: WARN
+    #                   error: '$${warm_error}'
 
     - done:
         return:
           status: OK
-          feed: $${feed}
-          file: $${file_name}
-          ingest: $${ingest_result.body}
-          normalise_job: $${normalise_result.jobReference}
-          unify_job: $${unify_result.jobReference}
-          anomalies_job: $${anomalies_result.jobReference}
-          data_quality_job: $${dq_result.jobReference}
-          warm: $${warm_result}
+          feed: '$${feed}'
+          file: '$${file_name}'
+          ingest: '$${ingest_result.body}'
+          normalise_job: '$${normalise_result.jobReference}'
+          unify_job: '$${unify_result.jobReference}'
+          anomalies_job: '$${anomalies_result.jobReference}'
+          data_quality_job: '$${dq_result.jobReference}'
+          # warm: '$${warm_result}'   # deferred — see warm_cache above

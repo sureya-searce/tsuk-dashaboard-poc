@@ -1,11 +1,11 @@
 output "runtime_service_account" {
   description = "Runtime SA used by Cloud Run, Workflows, and Eventarc."
-  value       = google_service_account.runtime.email
+  value       = local.runtime_sa_email
 }
 
 output "artifact_registry_repo" {
-  description = "Artifact Registry repo for container images."
-  value       = google_artifact_registry_repository.images.name
+  description = "Artifact Registry repo for container images (reused existing)."
+  value       = var.ar_repo
 }
 
 output "image_ingest" {
@@ -13,20 +13,14 @@ output "image_ingest" {
   value       = local.image_ingest
 }
 
-output "image_warm" {
-  description = "Container image reference for the warm service."
-  value       = local.image_warm
-}
-
 output "ingest_url" {
-  description = "Internal URL of the ingest Cloud Run service."
+  description = "URL of the ingest Cloud Run service."
   value       = google_cloud_run_v2_service.ingest.uri
 }
 
-output "warm_url" {
-  description = "Internal URL of the warm Cloud Run service."
-  value       = google_cloud_run_v2_service.warm.uri
-}
+# Deferred until Looker access lands:
+# output "image_warm" { value = local.image_warm }
+# output "warm_url"   { value = google_cloud_run_v2_service.warm.uri }
 
 output "workflow_name" {
   description = "Cloud Workflow name."
@@ -39,6 +33,6 @@ output "eventarc_trigger_name" {
 }
 
 output "bq_datasets" {
-  description = "BigQuery datasets created for the PoC."
+  description = "BigQuery datasets used by the PoC."
   value       = local.bq_datasets
 }

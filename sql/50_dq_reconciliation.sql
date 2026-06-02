@@ -15,6 +15,7 @@
 -- ─────────────────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE PROCEDURE `@@PROJECT@@.@@MART@@.sp_data_quality`()
+OPTIONS (strict_mode = false)  -- reads mart.movements, created at runtime by sp_unify
 BEGIN
 
   -- 1. Reconciliation — source control totals vs computed totals ──

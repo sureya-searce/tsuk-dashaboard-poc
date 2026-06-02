@@ -106,6 +106,7 @@ BEGIN
       JSON_VALUE(j, '$.charter_haulier_name')  AS carrier,        -- 62+ hauliers
       JSON_VALUE(j, '$.actual_col_date_time')  AS col_dt,
       JSON_VALUE(j, '$.actual_del_date_time')  AS del_dt,
+      JSON_VALUE(j, '$.month')                 AS month_val,
       INITCAP(TRIM(JSON_VALUE(j, '$.collection_town'))) AS collection_town,
       INITCAP(TRIM(JSON_VALUE(j, '$.delivery_town')))   AS delivery_town,
       JSON_VALUE(j, '$.collection_country_code') AS origin_country,
@@ -126,7 +127,13 @@ BEGIN
         CAST(IFNULL(gross_weight, 0) AS STRING)
       )) AS STRING) AS movement_id,
       ANY_VALUE(source_file) AS source_file,
-      DATE(SAFE_CAST(MAX(del_dt) AS TIMESTAMP)) AS movement_date,
+      -- Delivery date preferred; fall back to collection date, then the feed's
+      -- month field, so no shipment is dropped for an unparseable delivery date.
+      DATE(COALESCE(
+        SAFE_CAST(MAX(del_dt) AS TIMESTAMP),
+        SAFE_CAST(MAX(col_dt) AS TIMESTAMP),
+        SAFE_CAST(MAX(month_val) AS TIMESTAMP)
+      )) AS movement_date,
       ANY_VALUE(collection_town) AS origin,
       ANY_VALUE(delivery_town)   AS destination,
       ANY_VALUE(origin_country)  AS origin_country,

@@ -14,6 +14,7 @@
 -- ─────────────────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE PROCEDURE `@@PROJECT@@.@@MART@@.sp_anomalies`()
+OPTIONS (strict_mode = false)  -- reads mart.movements, created at runtime by sp_unify
 BEGIN
 
   CREATE OR REPLACE TABLE `@@PROJECT@@.@@MART@@.anomalies`

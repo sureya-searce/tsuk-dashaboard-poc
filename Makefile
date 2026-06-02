@@ -9,15 +9,15 @@ PROJECT     := prj-tsuk-looker-sa-01
 REGION      := europe-west2
 NAME_PREFIX := searce-poc
 BQ_PREFIX   := searce_poc
-AR_REPO     := $(NAME_PREFIX)-images
+AR_REPO     := dashboard-summarization-docker-repo
 RUNTIME_SA  := $(NAME_PREFIX)-runtime@$(PROJECT).iam.gserviceaccount.com
 
 INGEST_SVC  := $(NAME_PREFIX)-ingest
 WARM_SVC    := $(NAME_PREFIX)-warm
 WORKFLOW    := $(NAME_PREFIX)-pipeline
 
-INGEST_IMG  := $(REGION)-docker.pkg.dev/$(PROJECT)/$(AR_REPO)/ingest:latest
-WARM_IMG    := $(REGION)-docker.pkg.dev/$(PROJECT)/$(AR_REPO)/warm:latest
+INGEST_IMG  := $(REGION)-docker.pkg.dev/$(PROJECT)/$(AR_REPO)/$(INGEST_SVC):latest
+WARM_IMG    := $(REGION)-docker.pkg.dev/$(PROJECT)/$(AR_REPO)/$(WARM_SVC):latest
 
 .PHONY: help
 help:
@@ -104,7 +104,8 @@ deploy-warm: build-warm
 deploy-workflow:
 	cd infra && terraform apply -target=google_workflows_workflow.pipeline
 
-deploy: deploy-ingest deploy-warm deploy-workflow
+# warm (Looker cache) deferred until Looker access lands — not in default deploy.
+deploy: deploy-ingest deploy-workflow
 
 # ───────────────────────────────────────────────────────────── tests
 

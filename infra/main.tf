@@ -1,26 +1,21 @@
-locals {
-  apis = [
-    "run.googleapis.com",
-    "eventarc.googleapis.com",
-    "workflows.googleapis.com",
-    "workflowexecutions.googleapis.com",
-    "artifactregistry.googleapis.com",
-    "cloudbuild.googleapis.com",
-    "bigquery.googleapis.com",
-    "storage.googleapis.com",
-    "iam.googleapis.com",
-    "looker.googleapis.com",
-    "pubsub.googleapis.com",
-  ]
-}
+# APIs and the runtime service account are provisioned out-of-band by the TSUK
+# platform admin (we lack serviceusage / SA-create / project-IAM-admin rights):
+#   - Enabled APIs: run, eventarc, workflows, workflowexecutions, artifactregistry,
+#     cloudbuild, bigquery, storage, pubsub
+#   - Service account: searce-poc-runtime@<project>.iam.gserviceaccount.com,
+#     with run.invoker, workflows.invoker, eventarc.eventReceiver,
+#     bigquery.dataEditor, bigquery.jobUser, storage.objectViewer,
+#     logging.logWriter, monitoring.metricWriter
+#   - GCS service agent granted pubsub.publisher (for Eventarc GCS triggers)
+#
+# Terraform here manages only what our deploy-scoped roles allow us to create:
+# Artifact Registry repo, Cloud Run services, the Cloud Workflow, and the
+# Eventarc trigger. BigQuery datasets + schema are managed via bq + scripts/seed-bq.sh.
 
-# NOTE: APIs may already be enabled by TSUK at project bootstrap. We declare
-# them here for completeness; if `serviceusage.services.enable` is not granted
-# to the runner, comment out the `google_project_service` block and ask the
-# platform team to enable any missing APIs once.
-resource "google_project_service" "apis" {
-  for_each           = toset(local.apis)
-  project            = var.project_id
-  service            = each.key
-  disable_on_destroy = false
+# The admin-provisioned runtime service account. We can act-as it but cannot
+# `get` it (no iam.serviceAccounts.get), so we reference it by constructed email
+# rather than a data source.
+locals {
+  runtime_sa_email = "searce-poc-runtime@${var.project_id}.iam.gserviceaccount.com"
+  runtime_sa_id    = "projects/${var.project_id}/serviceAccounts/${local.runtime_sa_email}"
 }
