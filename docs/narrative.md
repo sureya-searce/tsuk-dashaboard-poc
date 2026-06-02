@@ -67,7 +67,7 @@ Sample data spans £81.4M of logistics spend across 142,090 movements
   | Source | Cost / tonne | Avg cost / load |
   |---|---|---|
   | Rail (DB Cargo) | **£6.57** | £7,976 |
-  | Road UK | **£20.37** | £388 |
+  | Road UK | £20.37 | £293 |
   | Road EU (imports) | **£55.31** | £1,224 |
 
   → **European road freight costs 8.4× per tonne what rail does.** In an
@@ -75,8 +75,8 @@ Sample data spans £81.4M of logistics spend across 142,090 movements
   on the table — and it was invisible while the three feeds lived apart.
 
 - **A second, unprompted insight (from the data):** just **two UK carriers —
-  OWENS (£6.5M) and HINGLEY (£6.3M) — account for £12.8M of road spend**, out of
-  **117 carriers** in total. Carrier concentration is a negotiation lever the
+  OWENS (£6.49M) and HINGLEY (£6.30M) — account for £12.8M (~35%) of UK road
+  spend**, out of **54 UK road carriers**. Carrier concentration is a negotiation lever the
   unified `carrier` dimension surfaces instantly.
 
 ### Supply Chain — "What is our utilisation capacity per load?"
@@ -85,8 +85,8 @@ Sample data spans £81.4M of logistics spend across 142,090 movements
   seeded in `stg.dim_capacity` and editable with TSUK's real fleet spec. Every
   utilisation figure is labelled as assumption-based.
 - Drill: by equipment type, lane, carrier.
-- **From the data (assumed capacity):** mean utilisation 54%, median 63%;
-  **35.8% of loads run below 40% utilisation.** Even directionally, that points
+- **From the data (assumed capacity):** mean utilisation ≈ 69% across in-scope
+  loads; **~29% run below 60% utilisation** (13% below 40%). Even directionally, that points
   to a consolidation lever — and TSUK's own fleet spec sharpens it to a £ figure.
 
 ## 5. The anomaly hook (the "wow")

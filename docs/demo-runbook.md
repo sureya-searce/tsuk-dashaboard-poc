@@ -115,26 +115,41 @@ click into and watch step through.
 
 ## 4. The numbers to quote (all reconciled to source — see §6)
 
-Sample data = £81.4M of logistics spend, 142,090 movements (rail = full FY26;
-road feeds = FY26 Q1).
+Sample data = **£81.42M** of logistics spend, **142,090** movements (rail = full
+FY26; road feeds = FY26 Q1). Every figure below is on the **full-feed basis** — it
+ties exactly to the reconciliation (§6) and each row is internally consistent
+(Cost ÷ tonnes = Cost/tonne).
 
-| Feed | Movements | Cost | Cost / tonne |
-|---|---|---|---|
-| Rail (DB Cargo) | 3,401 | £27.12M | **£6.57** |
-| UK road (domestic) | 124,045 | £36.37M | £15.33 |
-| EU road (cross-border) | 14,644 | £17.93M | **£55.37** |
+| Feed | Movements | Cost | Tonnes | Cost / tonne |
+|---|---|---|---|---|
+| Rail (DB Cargo) | 3,401 | £27,124,697 | 4,130,624 | **£6.57** |
+| UK road | 124,045 | £36,367,196 | 1,785,196 | £20.37 |
+| EU road (cross-border) | 14,644 | £17,930,073 | 324,146 | **£55.31** |
+| **Total** | **142,090** | **£81,421,966** | | |
 
-**The killer line:** *European road freight costs ~8× per tonne what rail does
-(£55 vs £6.57)* — the single most actionable cost fact for an import-era supply chain.
+**The killer line (airtight):** *European road freight costs **8.4× per tonne**
+what rail does — **£55.31 vs £6.57**.* This is the clean comparison: rail is at
+movement grain and EU road at shipment grain, so they're like-for-like, and both
+reconcile to source. The single most actionable cost fact for an import-era
+supply chain.
 
-**Second insight:** two UK carriers (OWENS, HINGLEY) carry ~£12.8M of road spend
-out of 117 carriers → a procurement / negotiation lever.
+> ⚠️ **If asked about UK road's £20.37/tonne:** UK road is **leg-grain** (a multi-leg
+> order's tonnage is counted on each leg), so this is a *leg-level* average and
+> understates true per-consignment cost. That's exactly why the headline comparison
+> is **rail vs EU road** — both clean grains. Don't headline the UK road £/tonne.
 
-**Supply Chain:** mean utilisation ~54%; a large share of loads run under 60% of
-assumed capacity → consolidation opportunity (assumption-based — see §5).
+**Second insight (verified):** two UK road carriers — **OWENS (£6.49M)** and
+**HINGLEY (£6.30M)** = **£12.79M, ~35% of UK road spend** — out of **54** distinct
+UK road carriers. A clear procurement / negotiation lever.
 
-> Don't memorise these — they're live. Pull them on screen with
-> `queries/sample_queries.sql` (Finance Q1, anomalies Q2, reconciliation Q1).
+**Supply Chain (assumption-based — see §5):** of in-scope loads with a valid
+utilisation reading, **mean ≈ 69%** and **~29% run below 60%** of assumed capacity
+(13% below 40%) → consolidation opportunity. Always say "based on assumed capacity."
+
+> Don't memorise these — they're live. Reproduce on screen with
+> `queries/sample_queries.sql` (Finance Q1 = cost/load by mode·trip; reconciliation
+> Q1 = the £0-delta proof; carrier_monthly Q1 = OWENS/HINGLEY). The exact killer
+> ratio: `SELECT SAFE_DIVIDE(eu,rail) ...` over the two feeds' cost-per-tonne.
 
 ---
 
@@ -153,7 +168,7 @@ Saying these out loud *builds* credibility; the platform is explicit about them
    Every utilisation figure should be described as "based on assumed capacity."
 3. **Provider labels** are partly inferred: rail = DB Cargo (known); EU road =
    P&O Ferrymasters (inferred from the fuel-surcharge labelling); UK road managing
-   partner = to be confirmed by TSUK. Sub-carriers (117 of them) come straight from
+   partner = to be confirmed by TSUK. Sub-carriers (116 across all feeds, 115 on road) come straight from
    the data.
 4. **road_uk is leg-grain.** A multi-leg order's tonnage appears on each leg, so
    "total tonnes" at order level would double-count; cost-per-tonne per leg is exact.

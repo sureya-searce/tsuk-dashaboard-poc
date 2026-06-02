@@ -21,7 +21,7 @@ a new mode never changes the schema:
 | `feed` | file shape / managing partner feed | landing folder | 3 (`rail`, `road_uk`, `road_eu`) |
 | `mode` | Rail / Road (future: Sea, Barge) | `stg.dim_feed` | 2 |
 | `provider` | managing logistics partner | `stg.dim_feed` (editable) | 3 |
-| `carrier` | the company doing the trip | row column | **117** |
+| `carrier` | the company doing the trip | row column | **116** (115 on road) |
 | `trip_type` | Domestic / Cross-border | origin↔dest country | 2 |
 | trip (grain) | the individual movement | one row | 142,090 |
 
