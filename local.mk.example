@@ -1,0 +1,12 @@
+# Copy to local.mk (gitignored) and edit for your environment. The Makefile loads
+# local.mk via `-include`, overriding the in-repo defaults (which target the
+# original client project). These values must match infra/terraform.tfvars.
+
+PROJECT       := infraappsandbox
+REGION        := europe-west2
+NAME_PREFIX   := searce-poc
+BQ_PREFIX     := searce_poc
+AR_REPO       := searce-poc-images
+BUCKET        := infraappsandbox-tsuk-logistics-poc-euw2
+# gcloud configuration name to activate in `make setup`.
+GCLOUD_CONFIG := infraappsandbox

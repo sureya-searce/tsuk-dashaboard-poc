@@ -31,7 +31,25 @@ variable "landing_prefix" {
 variable "suppliers" {
   description = "Allowed source subfolders under the landing prefix (landing/<source>/...). Anything outside this set is ignored by the Workflow."
   type        = set(string)
-  default     = ["rail", "road_uk", "road_eu"]
+  default     = ["rail", "road_uk", "road_eu", "finance_prodcost", "finance_mgmt"]
+}
+
+variable "create_prerequisites" {
+  description = "When true, Terraform provisions the full stack (APIs, runtime SA + IAM, landing bucket, Artifact Registry repo, BigQuery datasets). Set true in a project where you have Owner (e.g. infraappsandbox); leave false where APIs/SA/bucket are admin-provisioned out-of-band (the client project)."
+  type        = bool
+  default     = false
+}
+
+variable "finance_members" {
+  description = "Principals owning the Finance gold dataset (members get dataEditor on _finance, dataViewer on _core/_stg). e.g. [\"group:finance@tatasteel.co.uk\"]. Empty = no team IAM bindings created."
+  type        = list(string)
+  default     = []
+}
+
+variable "supplychain_members" {
+  description = "Principals owning the Supply-Chain gold dataset (dataEditor on _supplychain, dataViewer on _core/_stg). Empty = no team IAM bindings created."
+  type        = list(string)
+  default     = []
 }
 
 variable "name_prefix" {

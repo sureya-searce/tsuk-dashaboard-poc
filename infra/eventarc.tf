@@ -23,4 +23,10 @@ resource "google_eventarc_trigger" "gcs_trigger" {
   destination {
     workflow = google_workflows_workflow.pipeline.id
   }
+
+  depends_on = [
+    google_project_iam_member.runtime,
+    google_project_iam_member.gcs_pubsub_publisher,
+    google_storage_bucket.landing,
+  ]
 }

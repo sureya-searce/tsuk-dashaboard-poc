@@ -19,11 +19,19 @@ import pandas as pd
 
 # Feed registry. One entry per feed (file shape / managing provider). mode and
 # provider mirror stg.dim_feed; `sheet` is the worksheet to read (None → first).
-# Adding a new feed (e.g. sea freight) = one entry here + one row in dim_feed.
+# Adding a new feed (e.g. sea freight, or a finance domain) = one entry here + one
+# raw table (sql/00_raw.sql) + its transform.
+#
+# The three logistics feeds flow through sp_normalise → mart.movements. The two
+# finance feeds (finance_prodcost, finance_mgmt) flow through sp_finance_build into
+# their own marts — they are a DIFFERENT grain (production cost / management report),
+# not logistics movements. mode/provider are cosmetic lineage tags for finance feeds.
 FEED_REGISTRY: dict[str, dict] = {
-    "rail":    {"sheet": "FY26", "mode": "Rail", "provider": "DB Cargo",        "raw_table": "raw_rail"},
-    "road_uk": {"sheet": "Data", "mode": "Road", "provider": "UK Managed Road", "raw_table": "raw_road_uk"},
-    "road_eu": {"sheet": "Data", "mode": "Road", "provider": "P&O Ferrymasters","raw_table": "raw_road_eu"},
+    "rail":             {"sheet": "FY26", "mode": "Rail",    "provider": "DB Cargo",         "raw_table": "raw_rail"},
+    "road_uk":          {"sheet": "Data", "mode": "Road",    "provider": "UK Managed Road",  "raw_table": "raw_road_uk"},
+    "road_eu":          {"sheet": "Data", "mode": "Road",    "provider": "P&O Ferrymasters", "raw_table": "raw_road_eu"},
+    "finance_prodcost": {"sheet": "Data", "mode": "Finance", "provider": "TSUK Finance",     "raw_table": "raw_finance_prodcost"},
+    "finance_mgmt":     {"sheet": "Data", "mode": "Finance", "provider": "TSUK Finance",     "raw_table": "raw_finance_mgmt"},
 }
 
 KNOWN_FEEDS = set(FEED_REGISTRY.keys())

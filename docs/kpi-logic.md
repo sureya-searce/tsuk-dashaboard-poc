@@ -4,6 +4,42 @@ Every metric, its exact formula, and its source column — so any number on a
 dashboard or from Conversational Analytics can be traced to data. Assumptions
 are called out explicitly.
 
+## Domain-owned medallion (where things live)
+
+```
+raw  (bronze, shared)   per-feed JSON landing
+stg  (silver, shared)   clean conformed facts (shipments, production, management)
+                        + conformed dims (commodity, site, calendar, feed, capacity)
+core (gold, shared)     conformed facts (movements, production_cost) + GOVERNED KPIs
+                        (cost_per_tonne) + reconciliation + data_catalog
+finance      (gold, Finance-owned)       cost_analysis, management_report
+supplychain  (gold, SC-owned)            utilisation, lane_performance, carrier_spend, anomalies
+```
+
+The **dataset is the ownership boundary** (per-team IAM). Conformed facts and any
+**cross-team KPI live once in `core`**; teams build their own views on top but read
+the same governed definitions. `core.data_catalog` records owner + shared flag per table.
+
+## The governed cross-team KPI — "cost per tonne"
+
+One metric name, three legitimate readings from the **same source of truth**
+(`core.cost_per_tonne`, by commodity × period):
+
+| Basis | Definition | Source | Typical (synthetic) |
+|---|---|---|---|
+| **Finance** | production / works cost ÷ tonnes produced | `core.production_cost` | ~£500 / t |
+| **Logistics** | all-in transport cost ÷ tonnes moved | `core.movements` | ~£7–50 / t |
+| **Landed (governed)** | Finance + Logistics, signed off across functions | both | production + transport |
+
+This is the workshop's spine: *same word, different numbers, both correct* — resolved
+by defining each basis explicitly in the Looker semantic layer and blessing **landed**
+as the governed answer Conversational Analytics inherits.
+
+**Secondary (within transport):** even logistics cost splits — Finance counts base
+contracted freight (`finance_cost_gbp`), Logistics counts all-in cost-to-serve
+(`cost_gbp`). Per feed: rail `finance_cost_gbp` = haulage; road_eu = Freight charge
+lines; road_uk = purchase − fuel − handling.
+
 ## Canonical grain
 
 One row in `mart.movements` = one **movement** (trip):

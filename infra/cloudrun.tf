@@ -63,6 +63,15 @@ resource "google_cloud_run_v2_service" "ingest" {
       client_version,
     ]
   }
+
+  # When bootstrapping a fresh project, the runtime SA + APIs must exist first
+  # (no-op when create_prerequisites = false). The image itself is built by
+  # `make build-ingest` before this is applied — see `make bootstrap`.
+  depends_on = [
+    google_project_service.required,
+    google_service_account.runtime,
+    google_artifact_registry_repository.images,
+  ]
 }
 
 /* ── warm service DEFERRED until Looker access lands ───────────────────────

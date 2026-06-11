@@ -6,10 +6,10 @@
 #
 #     landing/<feed>/<filename>.xlsx
 #
-# where <feed> is one of the allowed feeds (rail, road_uk, road_eu).
-# Anything else short-circuits with status SKIPPED.
+# where <feed> is one of the allowed feeds (rail, road_uk, road_eu,
+# finance_prodcost, finance_mgmt). Anything else short-circuits with status SKIPPED.
 #
-# GCP Workflows requires ${...} expression values to be single-quoted.
+# GCP Workflows requires $${...} expression values to be single-quoted.
 
 main:
   params: [event]
@@ -20,7 +20,9 @@ main:
           - region: "${region}"
           - raw_dataset: "${raw_dataset}"
           - stg_dataset: "${stg_dataset}"
-          - mart_dataset: "${mart_dataset}"
+          - core_dataset: "${core_dataset}"
+          - finance_dataset: "${finance_dataset}"
+          - sc_dataset: "${sc_dataset}"
           - ingest_url: "${ingest_url}"
           # Looker cache warm — deferred until Looker access lands.
           # - warm_url: (set from warm Cloud Run service when re-enabled)
@@ -78,6 +80,7 @@ main:
           timeout: 540
         result: ingest_result
 
+    # Silver — normalise the logistics feeds, then the finance feeds.
     - normalise:
         call: googleapis.bigquery.v2.jobs.query
         args:
@@ -85,29 +88,57 @@ main:
           body:
             useLegacySql: false
             location: EU
+            timeoutMs: 60000
             query: '$${"CALL `" + project_id + "." + stg_dataset + ".sp_normalise`()"}'
         result: normalise_result
 
-    - unify:
+    - finance_stage:
         call: googleapis.bigquery.v2.jobs.query
         args:
           projectId: '$${project_id}'
           body:
             useLegacySql: false
             location: EU
-            query: '$${"CALL `" + project_id + "." + mart_dataset + ".sp_unify`()"}'
-        result: unify_result
+            timeoutMs: 60000
+            query: '$${"CALL `" + project_id + "." + stg_dataset + ".sp_finance_stage`()"}'
+        result: finance_stage_result
 
-    - anomalies:
+    # Gold core — conformed facts + the governed cross-team KPI.
+    - build_core:
         call: googleapis.bigquery.v2.jobs.query
         args:
           projectId: '$${project_id}'
           body:
             useLegacySql: false
             location: EU
-            query: '$${"CALL `" + project_id + "." + mart_dataset + ".sp_anomalies`()"}'
-        result: anomalies_result
+            timeoutMs: 60000
+            query: '$${"CALL `" + project_id + "." + core_dataset + ".sp_build_core`()"}'
+        result: build_core_result
 
+    # Gold team marts — Finance-owned, then Supply-Chain-owned.
+    - build_finance:
+        call: googleapis.bigquery.v2.jobs.query
+        args:
+          projectId: '$${project_id}'
+          body:
+            useLegacySql: false
+            location: EU
+            timeoutMs: 60000
+            query: '$${"CALL `" + project_id + "." + finance_dataset + ".sp_build_finance`()"}'
+        result: build_finance_result
+
+    - build_supplychain:
+        call: googleapis.bigquery.v2.jobs.query
+        args:
+          projectId: '$${project_id}'
+          body:
+            useLegacySql: false
+            location: EU
+            timeoutMs: 60000
+            query: '$${"CALL `" + project_id + "." + sc_dataset + ".sp_build_supplychain`()"}'
+        result: build_supplychain_result
+
+    # Shared receipts — reconciliation + DQ across logistics and finance.
     - data_quality:
         call: googleapis.bigquery.v2.jobs.query
         args:
@@ -115,7 +146,8 @@ main:
           body:
             useLegacySql: false
             location: EU
-            query: '$${"CALL `" + project_id + "." + mart_dataset + ".sp_data_quality`()"}'
+            timeoutMs: 60000
+            query: '$${"CALL `" + project_id + "." + core_dataset + ".sp_data_quality`()"}'
         result: dq_result
 
     # ── Looker cache warm — DEFERRED until Looker access lands ──────────
@@ -149,7 +181,9 @@ main:
           file: '$${file_name}'
           ingest: '$${ingest_result.body}'
           normalise_job: '$${normalise_result.jobReference}'
-          unify_job: '$${unify_result.jobReference}'
-          anomalies_job: '$${anomalies_result.jobReference}'
+          finance_stage_job: '$${finance_stage_result.jobReference}'
+          build_core_job: '$${build_core_result.jobReference}'
+          build_finance_job: '$${build_finance_result.jobReference}'
+          build_supplychain_job: '$${build_supplychain_result.jobReference}'
           data_quality_job: '$${dq_result.jobReference}'
           # warm: '$${warm_result}'   # deferred — see warm_cache above

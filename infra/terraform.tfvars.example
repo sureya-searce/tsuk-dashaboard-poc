@@ -1,0 +1,21 @@
+# Copy to terraform.tfvars (gitignored) and edit. For the infraappsandbox port,
+# create_prerequisites=true makes Terraform provision the FULL stack (APIs, runtime
+# SA + IAM, landing bucket, Artifact Registry repo, the five BigQuery datasets).
+# Keep region/BQ location at europe-west2 / EU. The bucket name must be globally unique.
+
+project_id           = "infraappsandbox"
+region               = "europe-west2"
+bucket_region        = "europe-west2"
+create_prerequisites = true
+
+landing_bucket = "infraappsandbox-tsuk-logistics-poc-euw2"
+ar_repo        = "searce-poc-images"
+name_prefix    = "searce-poc"
+bq_prefix      = "searce_poc"
+
+suppliers = ["rail", "road_uk", "road_eu", "finance_prodcost", "finance_mgmt"]
+
+# Per-team gold-dataset ownership (enforces the shared-vs-owned IAM boundary).
+# e.g. ["group:finance@tatasteel.co.uk"]. Empty = no team bindings created.
+finance_members     = []
+supplychain_members = []

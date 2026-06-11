@@ -19,11 +19,13 @@ from app.sources import KNOWN_FEEDS, load_rows, raw_table_for, snake_case
 
 SAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "sample_data")
 
-# Filename → feed mapping for the provided samples.
+# Filename → feed mapping for the generated samples (scripts/gen_synthetic_data.py).
 SAMPLE_FILES = {
-    "rail":    "Raw Rail Data.xlsx",
-    "road_uk": "Raw Road Data Set 1.xlsx",
-    "road_eu": "Raw Road Data Set 2 .xlsx",
+    "rail":             "Raw Rail Data.xlsx",
+    "road_uk":          "Raw Road Data Set 1.xlsx",
+    "road_eu":          "Raw Road Data Set 2 .xlsx",
+    "finance_prodcost": "Production Cost Data.xlsx",
+    "finance_mgmt":     "Management Report.xlsx",
 }
 
 
@@ -31,7 +33,9 @@ def test_raw_table_routing():
     assert raw_table_for("rail") == "raw_rail"
     assert raw_table_for("road_uk") == "raw_road_uk"
     assert raw_table_for("road_eu") == "raw_road_eu"
-    assert KNOWN_FEEDS == {"rail", "road_uk", "road_eu"}
+    assert raw_table_for("finance_prodcost") == "raw_finance_prodcost"
+    assert raw_table_for("finance_mgmt") == "raw_finance_mgmt"
+    assert KNOWN_FEEDS == {"rail", "road_uk", "road_eu", "finance_prodcost", "finance_mgmt"}
 
 # Keys the SQL layer depends on — pinned so a header-normalisation change that
 # would silently break the SQL fails loudly here instead.
@@ -68,6 +72,21 @@ EXPECTED_KEYS = {
     "Code": "code",
     "Modality": "modality",
     "Miles": "miles",
+    # Added for the divergence + finance feeds.
+    "Commodity": "commodity",
+    "Handling Charge": "handling_charge",
+    "Works Cost (GBP)": "works_cost_gbp",
+    "Tonnes Produced": "tonnes_produced",
+    "Standard Cost per Tonne": "standard_cost_per_tonne",
+    "Period": "period",
+    "Site": "site",
+    "Raw Material Cost": "raw_material_cost",
+    "Energy Cost": "energy_cost",
+    "Cost Centre": "cost_centre",
+    "Line Item": "line_item",
+    "Category": "category",
+    "Amount (GBP)": "amount_gbp",
+    "Plan Amount (GBP)": "plan_amount_gbp",
 }
 
 
@@ -99,11 +118,19 @@ def test_against_real_samples(source: str, fname: str):
         blob = f.read()
     rows = list(load_rows(blob, source))
     assert len(rows) > 0
-    # row_idx-free record; ensure snake keys present
-    sample = rows[0]
-    if source == "rail":
-        assert "tonnage_tops" in sample and "total_excl_cancellation" in sample
-    elif source == "road_uk":
-        assert "order_weight_t" in sample and "purchase_cost" in sample
-    elif source == "road_eu":
-        assert "revenue_amount_gbp" in sample and "charge_type" in sample
+    # Header-drift guard: every JSON key the SQL layer reads must be present after
+    # snake_case normalisation (see sql/20_stg_shipments.sql, sql/60_finance.sql).
+    required = {
+        "rail": {"tonnage_tops", "total_excl_cancellation", "haulage_revenue",
+                 "fuel_surcharge", "date_delivered", "tsuk_commodity", "wagons_received"},
+        "road_uk": {"order_weight_t", "purchase_cost", "fuel_surcharge", "handling_charge",
+                    "equipment_type", "carrier_name", "small_coil_test", "commodity"},
+        "road_eu": {"revenue_amount_gbp", "charge_type", "gross_weight", "code",
+                    "collection_country_code", "delivery_country_code", "commodity"},
+        "finance_prodcost": {"period", "site", "commodity", "tonnes_produced",
+                             "works_cost_gbp", "standard_cost_per_tonne"},
+        "finance_mgmt": {"period", "cost_centre", "line_item", "category",
+                         "amount_gbp", "plan_amount_gbp"},
+    }[source]
+    missing = required - set(rows[0].keys())
+    assert not missing, f"{source}: missing keys {missing}"

@@ -17,14 +17,16 @@ and how to recover if something misbehaves.
 
 ```
 drop file → GCS → Eventarc → Cloud Workflow → Cloud Run (ingest) → BigQuery
-            (searce-poc-gcs-trigger)  (searce-poc-pipeline)  (sp_normalise → sp_unify → sp_anomalies → sp_data_quality)
+            (searce-poc-gcs-trigger)  (searce-poc-pipeline)
+            (sp_normalise → sp_finance_stage → sp_build_core
+               → sp_build_finance → sp_build_supplychain → sp_data_quality)
 ```
 
 ---
 
 ## 1. Where to land the files
 
-**Bucket:** `gs://tsuk-searce-dashboard-poc-euw2`  (europe-west2)
+**Project:** `infraappsandbox`  ·  **Bucket:** `gs://infraappsandbox-tsuk-logistics-poc-euw2`  (europe-west2)
 
 **Path rule — this is the only thing that matters:**
 
@@ -32,7 +34,7 @@ drop file → GCS → Eventarc → Cloud Workflow → Cloud Run (ingest) → Big
 landing/<feed>/<anything>.xlsx
 ```
 
-- `<feed>` MUST be one of: **`rail`**, **`road_uk`**, **`road_eu`**
+- `<feed>` MUST be one of: **`rail`**, **`road_uk`**, **`road_eu`**, **`finance_prodcost`**, **`finance_mgmt`**
 - File MUST end in `.xlsx`
 - Exactly one sub-folder deep (`landing/rail/file.xlsx`, not `landing/rail/2025/file.xlsx`)
 
@@ -41,15 +43,21 @@ landing/<feed>/<anything>.xlsx
 | Rail (DB Cargo) | `landing/rail/` | `Raw Rail Data.xlsx` |
 | UK road | `landing/road_uk/` | `Raw Road Data Set 1.xlsx` |
 | European road | `landing/road_eu/` | `Raw Road Data Set 2 .xlsx` |
+| Finance — production cost | `landing/finance_prodcost/` | `Production Cost Data.xlsx` |
+| Finance — management report | `landing/finance_mgmt/` | `Management Report.xlsx` |
+
+> Files are **synthetic** — regenerate any time with `make gen-data`. `make upload-files`
+> drops all five. Deploy a fresh sandbox project in one shot with `make bootstrap`.
 
 **How to drop a file (two ways):**
 
 ```bash
 # CLI
 gcloud storage cp "sample_data/Raw Rail Data.xlsx" \
-  gs://tsuk-searce-dashboard-poc-euw2/landing/rail/
+  gs://infraappsandbox-tsuk-logistics-poc-euw2/landing/rail/
 
 # or: GCS console → bucket → landing/rail/ → Upload
+# or: make trigger SOURCE=rail FILE="sample_data/Raw Rail Data.xlsx"
 ```
 
 **Demo tip — drop them one at a time** (rail → road_uk → road_eu), waiting a few
@@ -72,9 +80,10 @@ gcloud workflows executions describe \
   --location=europe-west2 --format="value(result)"
 ```
 
-A healthy run returns `status: OK` with `ingest.rows_loaded` and four BigQuery
-job references (normalise, unify, anomalies, data_quality). Ingest takes ~8s for
-rail, longer for road_uk (124k rows).
+A healthy run returns `status: OK` with `ingest.rows_loaded` and six BigQuery
+job references (normalise, finance_stage, build_core, build_finance,
+build_supplychain, data_quality). Ingest takes a few seconds per feed
+(road_uk is the largest at ~15k rows).
 
 The **GCP Console → Workflows → searce-poc-pipeline → Executions** view is the
 nicest thing to show live — each file drop produces its own execution you can
@@ -104,16 +113,31 @@ click into and watch step through.
 - Two dimension tables drive it: `dim_feed` (mode + provider per feed) and
   `dim_capacity` (vehicle/wagon capacity assumptions for utilisation).
 
-### MART (`searce_poc_mart`) — "the answers"
-- `sp_unify` builds the single source-of-truth fact table **`movements`**, plus
-  rollups: `lane_monthly`, `carrier_monthly`, `kpi_monthly`.
-- `sp_anomalies` builds **`anomalies`** — rule-based cost-leakage, ranked by £ impact.
-- `sp_data_quality` builds the **audit layer**: `reconciliation` (computed totals vs
-  source), `dq_flags` (every excluded/suspect row), `assumptions` (the non-source inputs).
+- `sp_finance_stage` cleans the two finance feeds into **`production`** (works cost by
+  site×commodity×period) and **`management`** (working capital + P&L).
+- Conformed dimensions every team joins on: `dim_commodity`, `dim_site`, `dim_calendar`,
+  plus `dim_feed` and `dim_capacity`.
+
+### GOLD — split by ownership (the answers)
+- **`searce_poc_core`** (shared, governed): `sp_build_core` builds the conformed facts
+  **`movements`** + **`production_cost`**, the **governed cross-team KPI `cost_per_tonne`**
+  (finance | transport | landed), and **`data_catalog`** (who owns what). `sp_data_quality`
+  builds the receipts: **`reconciliation`**, `dq_flags`, `assumptions`.
+- **`searce_poc_finance`** (Finance-owned): `sp_build_finance` → `cost_analysis` (production
+  cost/t + variance), `management_report` (working capital + P&L vs plan).
+- **`searce_poc_supplychain`** (SC-owned): `sp_build_supplychain` → `utilisation`,
+  `lane_performance`, `carrier_spend`, `anomalies` (Top-N cost leakage).
+- **The point:** any cross-team KPI is defined ONCE in `core`; each team's gold + Looker
+  model inherits it. The dataset is the IAM/ownership boundary.
 
 ---
 
 ## 4. The numbers to quote (all reconciled to source — see §6)
+
+> ⚠️ The figures in this section are from the **original client data** and are kept for
+> shape/context only. The sandbox runs **synthetic** data (`make gen-data`) with different
+> totals (e.g. rail ≈ £19M, EU road ≈ £4M, production ≈ £500/t). **Always reproduce live**
+> from `queries/sample_queries.sql` — the ratios and story hold; the absolute £ differ.
 
 Sample data = **£81.42M** of logistics spend, **142,090** movements (rail = full
 FY26; road feeds = FY26 Q1). Every figure below is on the **full-feed basis** — it
@@ -185,7 +209,7 @@ This is the trust-builder. Run:
 SELECT feed, raw_rows, movements,
        ROUND(source_cost_gbp,0) source, ROUND(computed_cost_gbp,0) computed,
        ROUND(cost_delta,2) delta
-FROM `prj-tsuk-looker-sa-01.searce_poc_mart.reconciliation` ORDER BY feed;
+FROM `infraappsandbox.searce_poc_core.reconciliation` ORDER BY feed;
 ```
 
 Expected — **delta £0 on every feed**:
@@ -207,14 +231,18 @@ a SQL aggregation over these rows, not from the model's imagination."*
 
 ```bash
 # Re-run the whole transform once (idempotent) — fixes any transient mid-race view
-for p in searce_poc_stg.sp_normalise searce_poc_mart.sp_unify \
-         searce_poc_mart.sp_anomalies searce_poc_mart.sp_data_quality; do
-  bq query --use_legacy_sql=false --location=EU "CALL \`prj-tsuk-looker-sa-01.$p\`()"
+for p in searce_poc_stg.sp_normalise searce_poc_stg.sp_finance_stage \
+         searce_poc_core.sp_build_core searce_poc_finance.sp_build_finance \
+         searce_poc_supplychain.sp_build_supplychain searce_poc_core.sp_data_quality; do
+  bq query --use_legacy_sql=false --location=EU "CALL \`infraappsandbox.$p\`()"
 done
 
-# Full clean reset of a feed (e.g. re-demo from scratch): clear its raw rows then re-drop
+# Full blank slate (re-demo from scratch): empty data + clear landing files
+make cleanup    # truncate-bq + delete-gcs-files
+
+# Full clean reset of one feed: clear its raw rows then re-drop
 bq query --use_legacy_sql=false --location=EU \
-  'DELETE FROM `prj-tsuk-looker-sa-01.searce_poc_raw.raw_rail` WHERE TRUE'
+  'DELETE FROM `infraappsandbox.searce_poc_raw.raw_rail` WHERE TRUE'
 ```
 
 ---
@@ -234,22 +262,39 @@ drop of wrong-column files into an explicit `quarantine/` rejection, and alert w
 
 ---
 
-## 9. Deferred until Looker access lands
+## 9. Looker — one model, explores grouped by owner
 
-- LookML model + the two persona dashboards (Finance "cost per load", Supply Chain
-  "utilisation per load") + the Anomaly digest tile.
-- Looker Conversational Analytics (grounded on the same marts).
-- The `warm` Cloud Run service + cache-warm workflow step (commented in code,
-  ready to re-enable).
+One LookML model (`lookml/models/searce-tsuk-poc.model.lkml`) on the
+**Searce-Looker → infraappsandbox** connection (set the exact `connection:` name in the
+model file). One connection serves all datasets — views use fully-qualified table names.
+Explores are grouped by owner:
+- **Governed Core** — `cost_per_tonne` (finance | transport | landed), `movements`,
+  `production_cost`, `reconciliation`, `data_catalog`.
+- **Finance** — `cost_analysis`, `management_report`.
+- **Supply Chain** — `utilisation`, `lane_performance`, `carrier_spend`, `anomalies`.
 
-Until then the BigQuery marts are fully populated and queryable — demo from
-`queries/sample_queries.sql` or the BigQuery console.
+(Production posture: split into per-team models with model-level access grants —
+mention it, don't build it for the workshop.)
+
+Build the two persona dashboards (Finance/Richard Williams, Supply Chain/Dan Jones) + a
+shared KPI-governance tile from `core.cost_per_tonne`.
+
+**Conversational Analytics — the workshop moment** (grounded on the governed measures):
+1. "What's our **cost per tonne**?" → the governed **landed** answer; turn on *show reasoning*
+   so it cites the definition.
+2. "Show **finance vs logistics cost per tonne by commodity**." → both bases, consistent, one model.
+3. "**Working capital** this period vs plan." (Finance)
+4. "Where are we paying for **loads under 60% utilised**?" (Supply Chain)
+5. "Which **carriers** concentrate our spend?" (Supply Chain)
+
+The `warm` Cloud Run service + cache-warm workflow step remain commented in code, ready to
+re-enable for cache warming.
 
 ---
 
 ## 10. Pre-demo checklist
 
-- [ ] `gcloud config configurations activate tsuk-poc` (project `prj-tsuk-looker-sa-01`)
+- [ ] `gcloud config configurations activate infraappsandbox` (project `infraappsandbox`)
 - [ ] Workflow active: `gcloud workflows describe searce-poc-pipeline --location=europe-west2 --format='value(state)'` → `ACTIVE`
 - [ ] Trigger active: `gcloud eventarc triggers describe searce-poc-gcs-trigger --location=europe-west2 --format='value(name)'`
 - [ ] Ingest healthy: `gcloud run services describe searce-poc-ingest --region=europe-west2 --format='value(status.url)'`

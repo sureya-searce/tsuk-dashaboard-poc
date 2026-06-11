@@ -22,6 +22,8 @@ venv/
 .env
 .env.local
 *.log
+# Per-environment Makefile overrides (commit local.mk.example, not local.mk).
+local.mk
 
 # Client data — real TSUK logistics files. Do NOT commit to a remote.
 # Keep these local; share via the GCS landing bucket, not git.

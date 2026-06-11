@@ -36,3 +36,26 @@ CREATE TABLE IF NOT EXISTS `@@PROJECT@@.@@RAW@@.raw_road_eu` (
   payload_json  STRING    NOT NULL
 )
 PARTITION BY DATE(ingested_at);
+
+-- ── Finance domain feeds (different grain to logistics) ──────────────────────
+-- raw_finance_prodcost : production / works cost per tonne (site × commodity × period)
+-- raw_finance_mgmt     : management report — working capital + P&L (period × cost centre × line item)
+-- Both land here identically (JSON blob + lineage); sp_finance_build shapes them.
+
+CREATE TABLE IF NOT EXISTS `@@PROJECT@@.@@RAW@@.raw_finance_prodcost` (
+  feed          STRING    NOT NULL,
+  source_file   STRING    NOT NULL,
+  ingested_at   TIMESTAMP NOT NULL,
+  row_idx       INT64     NOT NULL,
+  payload_json  STRING    NOT NULL
+)
+PARTITION BY DATE(ingested_at);
+
+CREATE TABLE IF NOT EXISTS `@@PROJECT@@.@@RAW@@.raw_finance_mgmt` (
+  feed          STRING    NOT NULL,
+  source_file   STRING    NOT NULL,
+  ingested_at   TIMESTAMP NOT NULL,
+  row_idx       INT64     NOT NULL,
+  payload_json  STRING    NOT NULL
+)
+PARTITION BY DATE(ingested_at);
